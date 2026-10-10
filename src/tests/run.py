@@ -231,7 +231,7 @@ def test_p1_wallclock_sla_and_strict_breach_boundary() -> None:
     assert status == 200 and sla["ack_breached"] and sla["resolve_breached"]
 
     acknowledged = create_ticket(impact=1, urgency=1, clock=friday)
-    status, response = request(
+    status, _response = request(
         "POST",
         f"/tickets/{acknowledged['id']}/ack",
         clock="2026-09-25T15:15:00Z",
@@ -279,6 +279,37 @@ def test_rfc3339_lowercase_markers_are_accepted() -> None:
     assert ticket["created_at"] == "2026-09-28T10:00:00Z"
 
 
+def test_unhashable_dora_fields_return_json_errors() -> None:
+    window = {"from": "2026-09-01T00:00:00Z", "to": "2026-09-22T00:00:00Z"}
+    cases = [
+        {"event_id": "bad-type", "type": [], "at": "2026-09-01T00:00:00Z"},
+        {
+            "event_id": "bad-outcome",
+            "type": "deployment",
+            "at": "2026-09-01T00:00:00Z",
+            "deployment_id": "d1",
+            "environment": "production",
+            "outcome": {},
+            "commits": [],
+            "unplanned": False,
+            "caused_by": None,
+        },
+        {
+            "event_id": "bad-phase",
+            "type": "incident",
+            "at": "2026-09-01T00:00:00Z",
+            "incident_id": "i1",
+            "phase": [],
+            "deployments": [],
+        },
+    ]
+    for event in cases:
+        status, response = request(
+            "POST", "/dora/metrics", body={"window": window, "events": [event]}
+        )
+        assert_error(status, response, {400, 422})
+
+
 TESTS = [
     ("health response", test_health),
     ("ticket defaults and ignored server fields", test_create_defaults_and_ignores_server_fields),
@@ -293,6 +324,7 @@ TESTS = [
     ("business SLA weekend and closing tie", test_business_sla_weekend_and_closing_tie),
     ("malformed test clock", test_malformed_test_clock_is_rejected),
     ("RFC 3339 lowercase markers", test_rfc3339_lowercase_markers_are_accepted),
+    ("malformed DORA enum fields", test_unhashable_dora_fields_return_json_errors),
 ]
 
 

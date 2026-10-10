@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .dora import calculate_dora_metrics
 from .sla import (
     UTC,
     calculate_due_times,
@@ -223,6 +224,38 @@ def list_tickets(
 @app.get("/tickets/{ticket_id}")
 def get_ticket_route(ticket_id: str, now: datetime = Depends(request_now)) -> dict[str, Any]:
     return _ticket_or_404(ticket_id)
+
+
+@app.post("/dora/metrics")
+def dora_metrics(payload: Any = Body(...)) -> dict[str, Any]:
+    try:
+        return calculate_dora_metrics(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/dora/ticket-events")
+def dora_ticket_events() -> list[dict[str, str]]:
+    phase_fields = (
+        ("created", "created_at", "new"),
+        ("acknowledged", "acknowledged_at", "acknowledged"),
+        ("resolved", "resolved_at", "resolved"),
+        ("closed", "closed_at", "closed"),
+    )
+    events = []
+    for ticket in all_tickets():
+        for phase, field, state in phase_fields:
+            at = ticket[field]
+            if at is not None:
+                events.append({
+                    "ticket_id": ticket["id"],
+                    "at": at,
+                    "phase": phase,
+                    "priority": ticket["priority"],
+                    "state": state,
+                })
+    events.sort(key=lambda event: (parse_rfc3339(event["at"]), event["ticket_id"]))
+    return events
 
 
 @app.get("/tickets/{ticket_id}/sla")
